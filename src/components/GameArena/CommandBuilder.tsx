@@ -14,6 +14,7 @@ import { generateFullCProgram } from "../../utils/cCodeGenerator";
 import {
   ArrowRight,
   ArrowDown,
+  ArrowUp,
   RotateCcw,
   RotateCw,
   Zap,
@@ -26,11 +27,13 @@ import {
   Check,
   Undo2,
   GripVertical,
+  GripHorizontal,
   ChevronDown,
   ChevronUp,
   AlertCircle,
   Settings2,
   SlidersHorizontal,
+  Lock,
 } from "lucide-react";
 
 interface CommandBuilderProps {
@@ -57,6 +60,70 @@ export const CommandBuilder: React.FC<CommandBuilderProps> = ({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragOverLoopId, setDragOverLoopId] = useState<string | null>(null);
   const [selectedLoopId, setSelectedLoopId] = useState<string | null>(null);
+
+  // Active / Inactive state for FOR and WHILE in the palette
+  const [isForActive, setIsForActive] = useState<boolean>(() => level.id !== 4 && level.allowedBlocks.includes("repeat"));
+  const [isWhileActive, setIsWhileActive] = useState<boolean>(() => level.allowedBlocks.includes("while"));
+
+  // Palette vertical position: "top" or "bottom" of the workspace
+  const [palettePosition, setPalettePosition] = useState<"top" | "bottom">("top");
+
+  // Palette height (in pixels) when resizable / dragged vertically
+  const [paletteHeight, setPaletteHeight] = useState<number>(145);
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+  const [paletteNotice, setPaletteNotice] = useState<string | null>(null);
+
+  // Sync active states when level changes
+  useEffect(() => {
+    // Misi 4 strictly requires WHILE, not FOR
+    if (level.id === 4) {
+      setIsForActive(false);
+      setIsWhileActive(true);
+    } else {
+      setIsForActive(level.allowedBlocks.includes("repeat"));
+      setIsWhileActive(level.allowedBlocks.includes("while"));
+    }
+  }, [level.id, level.allowedBlocks]);
+
+  const showPaletteNotice = (msg: string) => {
+    setPaletteNotice(msg);
+    soundManager.play("lose");
+    setTimeout(() => setPaletteNotice(null), 3500);
+  };
+
+  // Drag-to-resize divider handler (geser ketinggian palet ke atas dan bawah)
+  const handleResizeStart = (clientY: number) => {
+    setIsResizing(true);
+    const startY = clientY;
+    const startH = paletteHeight;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const deltaY = e.clientY - startY;
+      const newHeight = palettePosition === "top" ? startH + deltaY : startH - deltaY;
+      setPaletteHeight(Math.max(75, Math.min(360, newHeight)));
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 0) {
+        const deltaY = e.touches[0].clientY - startY;
+        const newHeight = palettePosition === "top" ? startH + deltaY : startH - deltaY;
+        setPaletteHeight(Math.max(75, Math.min(360, newHeight)));
+      }
+    };
+
+    const onEnd = () => {
+      setIsResizing(false);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onEnd);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onEnd);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onEnd);
+    window.addEventListener("touchmove", onTouchMove);
+    window.addEventListener("touchend", onEnd);
+  };
 
   // Undo history stack
   const [history, setHistory] = useState<CodeBlock[][]>([]);
@@ -230,6 +297,10 @@ export const CommandBuilder: React.FC<CommandBuilderProps> = ({
   // Add for loop (repeat)
   const addForLoop = () => {
     if (disabled || isLimitReached) return;
+    if (!isForActive) {
+      showPaletteNotice(level.id === 4 ? "Misi 4 WAJIB menggunakan WHILE, tidak FOR!" : "Balok FOR sedang Nonaktif. Klik toggle 'FOR: Aktif' untuk mengaktifkannya!");
+      return;
+    }
     const defaultCount = level.expectedIterations || 3;
     const newBlock: RepeatBlock = {
       id: `for-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -245,6 +316,10 @@ export const CommandBuilder: React.FC<CommandBuilderProps> = ({
   // Add while loop
   const addWhileLoop = () => {
     if (disabled || isLimitReached) return;
+    if (!isWhileActive) {
+      showPaletteNotice("Balok WHILE sedang Nonaktif. Klik toggle 'WHILE: Aktif' untuk mengaktifkannya!");
+      return;
+    }
     const newBlock: WhileBlock = {
       id: `while-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       type: "while",
@@ -422,19 +497,44 @@ export const CommandBuilder: React.FC<CommandBuilderProps> = ({
   return (
     <div className="flex flex-col h-full bg-white border border-slate-200/90 rounded-2xl shadow-sm overflow-hidden select-none">
       {/* Top Header: Tab Toggle, Undo, and Block Counter */}
-      {/* Top Header: Title, Undo, and Block Counter */}
-      <div className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50/90 border-b border-slate-200">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 text-xs sm:text-sm font-black shadow-2xs">
+      {/* Top Header: Title, Position Toggle, Undo, and Block Counter */}
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50/90 border-b border-slate-200 flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 text-xs sm:text-sm font-black shadow-2xs">
             <Blocks className="w-4 h-4 text-indigo-600" />
             <span>Balok Program</span>
           </div>
+
+          {/* Toggle Palet Position: Atas vs Bawah */}
+          <button
+            type="button"
+            onClick={() => {
+              setPalettePosition((prev) => (prev === "top" ? "bottom" : "top"));
+              soundManager.playClick();
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 transition-all shadow-xs cursor-pointer"
+            title={palettePosition === "top" ? "Geser/Pindahkan Palet ke Bawah Workspace" : "Geser/Pindahkan Palet ke Atas Workspace"}
+          >
+            {palettePosition === "top" ? (
+              <>
+                <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden sm:inline">Palet: Di Atas ⬆️ (Pindah ke Bawah ⬇️)</span>
+                <span className="sm:hidden">Palet ⬇️</span>
+              </>
+            ) : (
+              <>
+                <ArrowUp className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden sm:inline">Palet: Di Bawah ⬇️ (Pindah ke Atas ⬆️)</span>
+                <span className="sm:hidden">Palet ⬆️</span>
+              </>
+            )}
+          </button>
 
           {/* Undo Button */}
           <button
             onClick={handleUndo}
             disabled={disabled || history.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 transition-all shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 transition-all shadow-xs cursor-pointer"
             title="Batal / Undo (Ctrl+Z)"
           >
             <Undo2 className="w-3.5 h-3.5" />
@@ -459,203 +559,390 @@ export const CommandBuilder: React.FC<CommandBuilderProps> = ({
         </div>
       </div>
 
-      {/* Blockly Visual Workspace */}
+      {/* Main Container: Supports positioning Palette on Top or Bottom */}
       <div className="flex-1 flex flex-col min-h-0 bg-slate-50/50">
-          {/* Palette (Top Section) */}
-          <div className="p-3 bg-white border-b border-slate-200">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                Palet Balok
-              </span>
-            </div>
+        {/* Render Palette & Workspace conditionally based on palettePosition */}
+        {(() => {
+          // --- 1. Palette Component ---
+          const paletteSection = (
+            <div
+              key="palette-section"
+              style={{ height: `${paletteHeight}px` }}
+              className="p-3 bg-white border-slate-200 overflow-y-auto transition-all flex flex-col justify-between shrink-0 select-none shadow-2xs"
+            >
+              <div>
+                {/* Palette Header with FOR & WHILE Active/Inactive Toggles */}
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider">
+                      Palet Balok
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
+                      (Tarik atau Klik)
+                    </span>
+                  </div>
 
-            <div className="flex flex-wrap gap-2">
-              {/* FOR Block (Repeat) */}
-              {isAllowed("repeat") && (
-                <div
-                  draggable={!disabled && !isLimitReached}
-                  onDragStart={(e) => handleDragStart(e, "repeat", "palette")}
-                  onClick={addForLoop}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 text-white transition-all text-xs font-bold border border-indigo-700 ${
-                    isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-indigo-700 active:scale-95 cursor-pointer shadow-xs"
-                  }`}
-                  title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "for (int i = 0; i < N; i++)"}
-                >
-                  <Repeat className="w-3.5 h-3.5" />
-                  <span>FOR (...)</span>
-                  <Plus className="w-3 h-3 text-indigo-200 ml-0.5" />
+                  {/* FOR & WHILE Aktif / Nonaktif Toggle Feature */}
+                  <div className="flex items-center gap-1.5">
+                    {/* FOR Toggle Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (level.id === 4 && !isForActive) {
+                          showPaletteNotice("Misi 4 WAJIB menggunakan loop WHILE, tidak boleh FOR!");
+                          return;
+                        }
+                        setIsForActive(!isForActive);
+                        soundManager.playClick();
+                      }}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black border transition-all cursor-pointer ${
+                        isForActive
+                          ? "bg-indigo-50 border-indigo-300 text-indigo-900 shadow-2xs hover:bg-indigo-100"
+                          : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200"
+                      }`}
+                      title={
+                        level.id === 4
+                          ? "Misi 4 WAJIB menggunakan WHILE, tidak FOR!"
+                          : isForActive
+                          ? "Klik untuk Menonaktifkan Balok FOR"
+                          : "Klik untuk Mengaktifkan Balok FOR"
+                      }
+                    >
+                      <Repeat className="w-3 h-3 text-indigo-600" />
+                      <span>FOR:</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold ${
+                          isForActive ? "bg-indigo-600 text-white" : "bg-slate-300 text-slate-700"
+                        }`}
+                      >
+                        {isForActive ? "Aktif ✓" : "Nonaktif ✕"}
+                      </span>
+                    </button>
+
+                    {/* WHILE Toggle Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsWhileActive(!isWhileActive);
+                        soundManager.playClick();
+                      }}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black border transition-all cursor-pointer ${
+                        isWhileActive
+                          ? "bg-purple-50 border-purple-300 text-purple-900 shadow-2xs hover:bg-purple-100"
+                          : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200"
+                      }`}
+                      title={isWhileActive ? "Klik untuk Menonaktifkan Balok WHILE" : "Klik untuk Mengaktifkan Balok WHILE"}
+                    >
+                      <Compass className="w-3 h-3 text-purple-600" />
+                      <span>WHILE:</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold ${
+                          isWhileActive ? "bg-purple-600 text-white" : "bg-slate-300 text-slate-700"
+                        }`}
+                      >
+                        {isWhileActive ? "Aktif ✓" : "Nonaktif ✕"}
+                      </span>
+                    </button>
+                  </div>
                 </div>
-              )}
 
-              {/* WHILE Block */}
-              {isAllowed("while") && (
-                <div
-                  draggable={!disabled && !isLimitReached}
-                  onDragStart={(e) => handleDragStart(e, "while", "palette")}
-                  onClick={addWhileLoop}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 text-white transition-all text-xs font-bold border border-purple-700 ${
-                    isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-purple-700 active:scale-95 cursor-pointer shadow-xs"
-                  }`}
-                  title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "while (pathClear())"}
-                >
-                  <Compass className="w-3.5 h-3.5" />
-                  <span>WHILE (pathClear)</span>
-                  <Plus className="w-3 h-3 text-purple-200 ml-0.5" />
+                {/* Temporary Notification Banner */}
+                {paletteNotice && (
+                  <div className="mb-2 p-2 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-bold flex items-center gap-1.5 animate-fadeIn shadow-xs">
+                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <span className="flex-1">{paletteNotice}</span>
+                  </div>
+                )}
+
+                {/* Palette Blocks List */}
+                <div className="flex flex-wrap gap-2">
+                  {/* FOR Block (Repeat) */}
+                  {(isAllowed("repeat") || isForActive || level.id === 4) && (
+                    <div
+                      draggable={!disabled && !isLimitReached && isForActive}
+                      onDragStart={(e) => {
+                        if (!isForActive) {
+                          e.preventDefault();
+                          showPaletteNotice(level.id === 4 ? "Misi 4 WAJIB menggunakan WHILE, tidak FOR!" : "Balok FOR sedang Nonaktif!");
+                          return;
+                        }
+                        handleDragStart(e, "repeat", "palette");
+                      }}
+                      onClick={() => {
+                        if (!isForActive) {
+                          showPaletteNotice(level.id === 4 ? "Misi 4 WAJIB menggunakan WHILE, tidak FOR!" : "Balok FOR sedang Nonaktif. Klik toggle 'FOR: Aktif' di atas untuk menggunakannya.");
+                          return;
+                        }
+                        addForLoop();
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all text-xs font-bold border select-none ${
+                        !isForActive
+                          ? "bg-slate-100 text-slate-400 border-slate-300 opacity-60 cursor-not-allowed"
+                          : isLimitReached
+                          ? "bg-indigo-600 text-white border-indigo-700 opacity-35 cursor-not-allowed"
+                          : "bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700 active:scale-95 cursor-pointer shadow-xs"
+                      }`}
+                      title={
+                        !isForActive
+                          ? (level.id === 4 ? "Misi 4 WAJIB menggunakan WHILE, tidak FOR!" : "Balok FOR sedang Nonaktif. Klik toggle di atas untuk mengaktifkan.")
+                          : isLimitReached
+                          ? `Batas ${maxLimit} balok tercapai`
+                          : "for (int i = 0; i < N; i++)"
+                      }
+                    >
+                      <Repeat className="w-3.5 h-3.5" />
+                      <span className={!isForActive ? "line-through opacity-80" : ""}>FOR (...)</span>
+                      {!isForActive ? (
+                        <span className="text-[9px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-extrabold ml-0.5">
+                          {level.id === 4 ? "🔒 Wajib WHILE" : "🔒 Nonaktif"}
+                        </span>
+                      ) : (
+                        <Plus className="w-3 h-3 text-indigo-200 ml-0.5" />
+                      )}
+                    </div>
+                  )}
+
+                  {/* WHILE Block */}
+                  {(isAllowed("while") || isWhileActive) && (
+                    <div
+                      draggable={!disabled && !isLimitReached && isWhileActive}
+                      onDragStart={(e) => {
+                        if (!isWhileActive) {
+                          e.preventDefault();
+                          showPaletteNotice("Balok WHILE sedang Nonaktif!");
+                          return;
+                        }
+                        handleDragStart(e, "while", "palette");
+                      }}
+                      onClick={() => {
+                        if (!isWhileActive) {
+                          showPaletteNotice("Balok WHILE sedang Nonaktif. Klik toggle 'WHILE: Aktif' di atas untuk menggunakannya.");
+                          return;
+                        }
+                        addWhileLoop();
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all text-xs font-bold border select-none ${
+                        !isWhileActive
+                          ? "bg-slate-100 text-slate-400 border-slate-300 opacity-60 cursor-not-allowed"
+                          : isLimitReached
+                          ? "bg-purple-600 text-white border-purple-700 opacity-35 cursor-not-allowed"
+                          : "bg-purple-600 text-white border-purple-700 hover:bg-purple-700 active:scale-95 cursor-pointer shadow-xs"
+                      }`}
+                      title={
+                        !isWhileActive
+                          ? "Balok WHILE sedang Nonaktif. Klik toggle di atas untuk mengaktifkan."
+                          : isLimitReached
+                          ? `Batas ${maxLimit} balok tercapai`
+                          : "while (pathClear())"
+                      }
+                    >
+                      <Compass className="w-3.5 h-3.5" />
+                      <span className={!isWhileActive ? "line-through opacity-80" : ""}>WHILE (pathClear)</span>
+                      {!isWhileActive ? (
+                        <span className="text-[9px] bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-extrabold ml-0.5">
+                          🔒 Nonaktif
+                        </span>
+                      ) : (
+                        <Plus className="w-3 h-3 text-purple-200 ml-0.5" />
+                      )}
+                    </div>
+                  )}
+
+                  {/* MOVE Action */}
+                  {isAllowed("move_forward") && (
+                    <div
+                      draggable={!disabled && !isLimitReached}
+                      onDragStart={(e) => handleDragStart(e, "move_forward", "palette")}
+                      onClick={() => addCommand("move_forward")}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-500 text-white transition-all text-xs font-bold border border-sky-600 ${
+                        isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-sky-600 active:scale-95 cursor-pointer shadow-xs"
+                      }`}
+                      title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "move();"}
+                    >
+                      <ArrowRight className="w-3.5 h-3.5" />
+                      <span>MAJU</span>
+                      <Plus className="w-3 h-3 text-sky-200 ml-0.5" />
+                    </div>
+                  )}
+
+                  {/* MOVE BACKWARD Action */}
+                  {isAllowed("move_backward") && (
+                    <div
+                      draggable={!disabled && !isLimitReached}
+                      onDragStart={(e) => handleDragStart(e, "move_backward", "palette")}
+                      onClick={() => addCommand("move_backward")}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white transition-all text-xs font-bold border border-blue-700 ${
+                        isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-blue-700 active:scale-95 cursor-pointer shadow-xs"
+                      }`}
+                      title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "moveBackward();"}
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                      <span>MUNDUR</span>
+                      <Plus className="w-3 h-3 text-blue-200 ml-0.5" />
+                    </div>
+                  )}
+
+                  {/* TURN LEFT */}
+                  {isAllowed("turn_left") && (
+                    <div
+                      draggable={!disabled && !isLimitReached}
+                      onDragStart={(e) => handleDragStart(e, "turn_left", "palette")}
+                      onClick={() => addCommand("turn_left")}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500 text-white transition-all text-xs font-bold border border-teal-600 ${
+                        isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-teal-600 active:scale-95 cursor-pointer shadow-xs"
+                      }`}
+                      title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "turnLeft();"}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>BELOK KIRI</span>
+                      <Plus className="w-3 h-3 text-teal-200 ml-0.5" />
+                    </div>
+                  )}
+
+                  {/* TURN RIGHT */}
+                  {isAllowed("turn_right") && (
+                    <div
+                      draggable={!disabled && !isLimitReached}
+                      onDragStart={(e) => handleDragStart(e, "turn_right", "palette")}
+                      onClick={() => addCommand("turn_right")}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500 text-white transition-all text-xs font-bold border border-teal-600 ${
+                        isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-teal-600 active:scale-95 cursor-pointer shadow-xs"
+                      }`}
+                      title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "turnRight();"}
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                      <span>BELOK KANAN</span>
+                      <Plus className="w-3 h-3 text-teal-200 ml-0.5" />
+                    </div>
+                  )}
+
+                  {/* COLLECT / TAKE BATTERY */}
+                  {isAllowed("take_battery") && (
+                    <div
+                      draggable={!disabled && !isLimitReached}
+                      onDragStart={(e) => handleDragStart(e, "take_battery", "palette")}
+                      onClick={() => addCommand("take_battery")}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 text-white transition-all text-xs font-bold border border-amber-600 ${
+                        isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-amber-600 active:scale-95 cursor-pointer shadow-xs"
+                      }`}
+                      title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "collect();"}
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-white" />
+                      <span>AMBIL BATERAI</span>
+                      <Plus className="w-3 h-3 text-amber-200 ml-0.5" />
+                    </div>
+                  )}
                 </div>
-              )}
 
-              {/* MOVE Action */}
-              {isAllowed("move_forward") && (
-                <div
-                  draggable={!disabled && !isLimitReached}
-                  onDragStart={(e) => handleDragStart(e, "move_forward", "palette")}
-                  onClick={() => addCommand("move_forward")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-500 text-white transition-all text-xs font-bold border border-sky-600 ${
-                    isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-sky-600 active:scale-95 cursor-pointer shadow-xs"
-                  }`}
-                  title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "move();"}
-                >
-                  <ArrowRight className="w-3.5 h-3.5" />
-                  <span>MAJU</span>
-                  <Plus className="w-3 h-3 text-sky-200 ml-0.5" />
-                </div>
-              )}
-
-              {/* MOVE BACKWARD Action */}
-              {isAllowed("move_backward") && (
-                <div
-                  draggable={!disabled && !isLimitReached}
-                  onDragStart={(e) => handleDragStart(e, "move_backward", "palette")}
-                  onClick={() => addCommand("move_backward")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white transition-all text-xs font-bold border border-blue-700 ${
-                    isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-blue-700 active:scale-95 cursor-pointer shadow-xs"
-                  }`}
-                  title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "moveBackward();"}
-                >
-                  <ArrowDown className="w-3.5 h-3.5" />
-                  <span>MUNDUR</span>
-                  <Plus className="w-3 h-3 text-blue-200 ml-0.5" />
-                </div>
-              )}
-
-              {/* TURN LEFT */}
-              {isAllowed("turn_left") && (
-                <div
-                  draggable={!disabled && !isLimitReached}
-                  onDragStart={(e) => handleDragStart(e, "turn_left", "palette")}
-                  onClick={() => addCommand("turn_left")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500 text-white transition-all text-xs font-bold border border-teal-600 ${
-                    isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-teal-600 active:scale-95 cursor-pointer shadow-xs"
-                  }`}
-                  title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "turnLeft();"}
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>BELOK KIRI</span>
-                  <Plus className="w-3 h-3 text-teal-200 ml-0.5" />
-                </div>
-              )}
-
-              {/* TURN RIGHT */}
-              {isAllowed("turn_right") && (
-                <div
-                  draggable={!disabled && !isLimitReached}
-                  onDragStart={(e) => handleDragStart(e, "turn_right", "palette")}
-                  onClick={() => addCommand("turn_right")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500 text-white transition-all text-xs font-bold border border-teal-600 ${
-                    isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-teal-600 active:scale-95 cursor-pointer shadow-xs"
-                  }`}
-                  title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "turnRight();"}
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                  <span>BELOK KANAN</span>
-                  <Plus className="w-3 h-3 text-teal-200 ml-0.5" />
-                </div>
-              )}
-
-              {/* COLLECT / TAKE BATTERY */}
-              {isAllowed("take_battery") && (
-                <div
-                  draggable={!disabled && !isLimitReached}
-                  onDragStart={(e) => handleDragStart(e, "take_battery", "palette")}
-                  onClick={() => addCommand("take_battery")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 text-white transition-all text-xs font-bold border border-amber-600 ${
-                    isLimitReached ? "opacity-35 cursor-not-allowed" : "hover:bg-amber-600 active:scale-95 cursor-pointer shadow-xs"
-                  }`}
-                  title={isLimitReached ? `Batas ${maxLimit} balok tercapai` : "collect();"}
-                >
-                  <Zap className="w-3.5 h-3.5 fill-white" />
-                  <span>AMBIL BATERAI</span>
-                  <Plus className="w-3 h-3 text-amber-200 ml-0.5" />
-                </div>
-              )}
-            </div>
-
-            {/* Limit Reached Warning Alert */}
-            {isLimitReached && (
-              <div className="mt-2.5 p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold flex items-center gap-1.5 animate-fadeIn">
-                <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
-                <span>
-                  Batas maksimal {maxLimit} balok untuk Level {level.id} telah tercapai. Hapus balok di workspace jika ingin menambah yang baru.
-                </span>
+                {/* Limit Reached Warning Alert */}
+                {isLimitReached && (
+                  <div className="mt-2.5 p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold flex items-center gap-1.5 animate-fadeIn">
+                    <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+                    <span>
+                      Batas maksimal {maxLimit} balok untuk Level {level.id} telah tercapai. Hapus balok di workspace jika ingin menambah yang baru.
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          );
 
-          {/* Workspace Droppable Area */}
-          <div
-            onDragOver={(e) => handleDragOver(e)}
-            onDrop={(e) => handleDrop(e)}
-            className="flex-1 p-3 overflow-y-auto space-y-2.5"
-          >
-            {blocks.length === 0 ? (
-              <div
-                onDragOver={(e) => handleDragOver(e)}
-                onDrop={(e) => handleDrop(e)}
-                className="h-56 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 text-xs text-center p-6 bg-white/60 transition-all hover:border-indigo-400 hover:bg-indigo-50/20"
-              >
-                <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-500 mb-2 border border-indigo-100">
-                  <Blocks className="w-6 h-6" />
-                </div>
-                <p className="font-bold text-slate-700 text-sm">Area Kerja Balok Kosong</p>
-                <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                  Klik balok di atas untuk menambahkan perintah, atau tarik balok ke sini untuk menyusun program.
-                </p>
+          // --- 2. Interactive Draggable Divider (Geser Palet Atas / Bawah) ---
+          const dividerSection = (
+            <div
+              key="divider-section"
+              onMouseDown={(e) => handleResizeStart(e.clientY)}
+              onTouchStart={(e) => {
+                if (e.touches.length > 0) handleResizeStart(e.touches[0].clientY);
+              }}
+              onDoubleClick={() => setPaletteHeight(paletteHeight > 130 ? 80 : 160)}
+              className={`h-4 bg-slate-100 hover:bg-indigo-100 border-y border-slate-200 cursor-row-resize flex items-center justify-center transition-colors select-none group shrink-0 ${
+                isResizing ? "bg-indigo-200 border-indigo-400" : ""
+              }`}
+              title="Tarik ke atas atau ke bawah untuk mengatur tinggi palet balok (atau klik 2x untuk ubah cepat)"
+            >
+              <div className="flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-white border border-slate-200 shadow-2xs group-hover:border-indigo-300 text-slate-500 group-hover:text-indigo-700 text-[10px] font-bold transition-all">
+                <GripHorizontal className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600" />
+                <span>↕ Geser Palet ke Atas / Bawah</span>
+                <span className="text-[9px] font-mono text-slate-400">({paletteHeight}px)</span>
               </div>
-            ) : (
-              blocks.map((block, idx) => (
+            </div>
+          );
+
+          // --- 3. Workspace Droppable Area Component ---
+          const workspaceSection = (
+            <div
+              key="workspace-section"
+              onDragOver={(e) => handleDragOver(e)}
+              onDrop={(e) => handleDrop(e)}
+              className="flex-1 p-3 overflow-y-auto space-y-2.5 min-h-0"
+            >
+              {blocks.length === 0 ? (
                 <div
-                  key={block.id}
-                  draggable={!disabled}
-                  onDragStart={(e) => handleDragStart(e, block.type, "workspace", block.id)}
-                  onDragOver={(e) => handleDragOver(e, idx)}
-                  onDrop={(e) => handleDrop(e, idx)}
-                  className={`transition-transform ${dragOverIndex === idx ? "border-t-2 border-indigo-500 pt-1" : ""}`}
+                  onDragOver={(e) => handleDragOver(e)}
+                  onDrop={(e) => handleDrop(e)}
+                  className="h-56 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 text-xs text-center p-6 bg-white/60 transition-all hover:border-indigo-400 hover:bg-indigo-50/20"
                 >
-                  <BlockItem
-                    block={block}
-                    index={idx}
-                    activeBlockId={activeBlockId}
-                    disabled={disabled}
-                    selectedLoopId={selectedLoopId}
-                    onSelectLoop={(id) => setSelectedLoopId(id)}
-                    onDelete={() => deleteBlock(block.id)}
-                    onUpdateRepeat={(count) => updateRepeatCount(block.id, count)}
-                    onUpdateRepeatBlock={(updates) => updateRepeatBlock(block.id, updates)}
-                    onUpdateWhileBlock={(updates) => updateWhileBlock(block.id, updates)}
-                    onAddChild={(action) => addChildToLoop(block.id, action)}
-                    onDeleteChild={(childId) => deleteBlock(childId)}
-                    isAllowed={isAllowed}
-                    isLimitReached={isLimitReached}
-                    handleDragStart={handleDragStart}
-                    handleDragOver={handleDragOver}
-                    handleDrop={handleDrop}
-                    dragOverLoopId={dragOverLoopId}
-                  />
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-500 mb-2 border border-indigo-100">
+                    <Blocks className="w-6 h-6" />
+                  </div>
+                  <p className="font-bold text-slate-700 text-sm">Area Kerja Balok Kosong</p>
+                  <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                    Klik balok di palet untuk menambahkan perintah, atau tarik balok ke sini untuk menyusun program.
+                  </p>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
+              ) : (
+                blocks.map((block, idx) => (
+                  <div
+                    key={block.id}
+                    draggable={!disabled}
+                    onDragStart={(e) => handleDragStart(e, block.type, "workspace", block.id)}
+                    onDragOver={(e) => handleDragOver(e, idx)}
+                    onDrop={(e) => handleDrop(e, idx)}
+                    className={`transition-transform ${dragOverIndex === idx ? "border-t-2 border-indigo-500 pt-1" : ""}`}
+                  >
+                    <BlockItem
+                      block={block}
+                      index={idx}
+                      activeBlockId={activeBlockId}
+                      disabled={disabled}
+                      selectedLoopId={selectedLoopId}
+                      onSelectLoop={(id) => setSelectedLoopId(id)}
+                      onDelete={() => deleteBlock(block.id)}
+                      onUpdateRepeat={(count) => updateRepeatCount(block.id, count)}
+                      onUpdateRepeatBlock={(updates) => updateRepeatBlock(block.id, updates)}
+                      onUpdateWhileBlock={(updates) => updateWhileBlock(block.id, updates)}
+                      onAddChild={(action) => addChildToLoop(block.id, action)}
+                      onDeleteChild={(childId) => deleteBlock(childId)}
+                      isAllowed={isAllowed}
+                      isLimitReached={isLimitReached}
+                      handleDragStart={handleDragStart}
+                      handleDragOver={handleDragOver}
+                      handleDrop={handleDrop}
+                      dragOverLoopId={dragOverLoopId}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+          );
+
+          // Return sections in user-selected order (Top vs Bottom)
+          return palettePosition === "top" ? (
+            <>
+              {paletteSection}
+              {dividerSection}
+              {workspaceSection}
+            </>
+          ) : (
+            <>
+              {workspaceSection}
+              {dividerSection}
+              {paletteSection}
+            </>
+          );
+        })()}
+      </div>
     </div>
   );
 };

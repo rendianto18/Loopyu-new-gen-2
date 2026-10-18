@@ -130,15 +130,15 @@ export const INITIAL_8_LEVELS: LevelConfig[] = [
   {
     id: 4,
     name: "Break the Pattern",
-    focus: "Debugging Kesalahan Perulangan (Off-by-One Error & Tabrakan)",
-    challengeExample: "Perbaiki loop yang terlalu banyak (off-by-one) agar robot berhenti dengan aman.",
-    difficulty: "Tingkat 4: Debugging Perulangan",
+    focus: "Perulangan Berbasis Sensor WHILE (pathClear) vs Dinding Rintangan",
+    challengeExample: "Gunakan loop WHILE (pathClear) agar robot melangkah dan berhenti aman sebelum dinding.",
+    difficulty: "Tingkat 4: Perulangan WHILE Berbasis Sensor",
     difficultyStars: 4,
-    concept: "for",
-    requiredLoopType: "for",
+    concept: "while",
+    requiredLoopType: "while",
     stageEL: "Reflective Observation (Misi 4)",
-    description: "Misi 4 (Break the Pattern): Belajar dari kesalahan melalui tantangan debugging terarah! Program di bawah ini memiliki bug perulangan (off-by-one error): loop repeat disetel 5 kali sehingga robot melangkah ke petak (5,3) dan menabrak dinding. Analisis pesan kegagalan dari Asisten Debug Cerdas, temukan alasan loop berlebih, dan perbaiki angka perulangan menjadi 3!",
-    instruction: "Debugging: Klik balok repeat dan perbaiki angka perulangan dari 5 menjadi 3 agar robot mengambil 3 baterai dan berhenti sebelum dinding!",
+    description: "Misi 4 (Break the Pattern): Misi ini WAJIB menggunakan loop WHILE, bukan for! Di petak (5,3) terdapat dinding rintangan. Gunakan perulangan sensorik while (pathClear()) agar robot mengambil 3 baterai di lintasan dan otomatis berhenti dengan aman tepat sebelum dinding rintangan!",
+    instruction: "Misi 4 Wajib WHILE: Gunakan loop WHILE (pathClear) berisi MAJU dan AMBIL BATERAI agar robot mengambil 3 baterai dan otomatis berhenti tepat sebelum dinding!",
     gridSize: { rows: 6, cols: 6 },
     startPos: { x: 1, y: 3, dir: "right" },
     targetBatteries: [
@@ -147,14 +147,15 @@ export const INITIAL_8_LEVELS: LevelConfig[] = [
       { id: "b3", x: 4, y: 3 },
     ],
     obstacles: [{ x: 5, y: 3 }],
-    allowedBlocks: ["repeat", "while", "move_forward", "move_backward", "take_battery"],
+    allowedBlocks: ["while", "move_forward", "move_backward", "take_battery"],
     maxBlocksForEfficiency: 3,
     maxBlocksLimit: 5,
     defaultBuggyCode: [
       {
-        id: "lvl4-buggy-repeat",
-        type: "repeat",
-        count: 5, // BUG: Iterasi 5 menyebabkan tabrakan di petak x=5! Solusi: ubah count ke 3.
+        id: "lvl4-while-starter",
+        type: "while",
+        whileMode: "sensor",
+        condition: "path_clear",
         commands: [
           { id: "lvl4-b1", type: "command", action: "move_forward" },
           { id: "lvl4-b2", type: "command", action: "take_battery" },
@@ -162,15 +163,15 @@ export const INITIAL_8_LEVELS: LevelConfig[] = [
       },
     ],
     hints: {
-      hint1: "Coba jalankan kode awal dan amati pesan tabrakan: robot menabrak dinding karena loop repeat disetel 5 kali!",
-      hint2: "Ubah angka pengulangan pada balok repeat dari 5 menjadi 3 (sesuai jumlah 3 baterai sebelum dinding).",
-      hint3: "Bentuk kode C yang benar: for (int i = 0; i < 3; i++) { move(); collect(); }",
+      hint1: "Misi 4 mewajibkan loop WHILE (pathClear) dan menonaktifkan balok for.",
+      hint2: "Sensor pathClear() memeriksa petak di depan robot. Selama jalan bersih (TRUE), loop berjalan. Saat tiba di depan dinding (5,3), loop otomatis berhenti.",
+      hint3: "Bentuk kode C yang benar: while (pathClear()) { move(); collect(); }",
     },
     reflectionQuestions: [
       {
         id: "ref-4-1",
-        question: "Mengapa loop yang terlalu banyak (off-by-one / over-looping) sangat berbahaya dalam pemrograman?",
-        placeholder: "Dapat menyebabkan program mengakses data di luar batas, menabrak rintangan, atau program crash...",
+        question: "Mengapa loop WHILE lebih fleksibel dan aman digunakan saat ada rintangan dinding dibanding for?",
+        placeholder: "Karena WHILE memeriksa sensor jalan di setiap langkah secara dinamis sehingga tidak menabrak rintangan...",
       },
     ],
   },
